@@ -147,7 +147,7 @@ def LoadVolMesh(mesh_np, id, path, mode, colormap='jet'):
             AddMaterial(id="model_material", alpha=0.05, r_number=region_n, colormap_id=colormap)
 
     elif mode == 'result_view':
-        filename, region_n, digit = ConvertMat2Vdb(mesh_np['fluxlog'], id, path, mode)
+        filename, region_n, digit = ConvertMat2Vdb(mesh_np['flux'], id, path, mode)
         try:
             bpy.data.materials["mcx_material"]
         except:
@@ -163,6 +163,7 @@ def LoadVolMesh(mesh_np, id, path, mode, colormap='jet'):
     elif mode == 'result_view':
         obj = bpy.data.objects['MCX_result']
         obj.data.materials.append(bpy.data.materials["mcx_material"])
+
     try:
         obj.scale = [mesh_np['scale'][0, 0], mesh_np['scale'][1, 1], mesh_np['scale'][2, 2]]
     except:

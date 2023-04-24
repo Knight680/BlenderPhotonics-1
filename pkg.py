@@ -33,3 +33,17 @@ class InstallJData(bpy.types.Operator):
             os.makedirs(ADDON_DIR)
         subprocess.call([sys.executable, "-m", "pip", "install", "jdata", "--target=" + ADDON_DIR])
         return {"FINISHED"}
+        
+class InstallPMCX(bpy.types.Operator):
+    bl_idname = "blenderphotonics.install_pmcx"
+    bl_label = "Install Package"
+    bl_description = "Install pmcx package"
+    bl_options = {"REGISTER", "UNDO"}
+
+    def execute(self, context):
+        # Install JData
+        ADDON_DIR = os.path.join(os.path.abspath(pathlib.Path(__file__).resolve().parent.parent), "modules")
+        if not os.path.exists(ADDON_DIR):
+            os.makedirs(ADDON_DIR)
+        subprocess.call([sys.executable, "-m", "pip", "install", "pmcx", "--target=" + ADDON_DIR])
+        return {"FINISHED"}

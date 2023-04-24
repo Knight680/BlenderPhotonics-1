@@ -68,8 +68,6 @@ class runmmc(bpy.types.Operator):
 
         ## save optical parameters and source source information
         parameters = [] # mu_a, mu_s, n, g
-        cfg = [] # location, direction, photon number, Type,
-
         try:
             obj = bpy.data.objects["Iso2Mesh"]
             for prop in obj.data.keys():
@@ -81,76 +79,53 @@ class runmmc(bpy.types.Operator):
                 parameters.append([obj["mua"],obj["mus"],obj["g"],obj["n"]])
 
         obj = bpy.data.objects['source']
-        location =  np.array(obj.location).tolist();
+        location =  np.array(obj.location);
         bpy.context.object.rotation_mode = 'QUATERNION'
         direction =  np.array(bpy.context.object.rotation_quaternion).tolist();
-        srcparam1=[val for val in obj['srcparam1']]
-        srcparam2=[val for val in obj['srcparam2']]
-        cfg={'srctype':obj['srctype'],'srcpos':location, 'srcdir':direction,'srcparam1':srcparam1,
-            'srcparam2':srcparam2,'nphoton': self.nphoton, 'srctype':obj["srctype"], 'unitinmm': obj['unitinmm'],
-            'tend':self.tend, 'tstep':self.tstep, 'isreflect':self.isreflect, 'isnormalized':self.isnormalized,
-            'method':self.method, 'outputtype':self.outputtype,'basisorder':self.basisorder, 'debuglevel':self.debuglevel, 'gpuid':self.gpuid}
-        print(obj['srctype'])
+
+        def quaternion2euler(direction):
+            w, x, y, z = direction
+            R = np.array([[1 - 2 * y ** 2 - 2 * z ** 2, 2 * x * y - 2 * z * w, 2 * x * z + 2 * y * w],
+                          [2 * x * y + 2 * z * w, 1 - 2 * x ** 2 - 2 * z ** 2, 2 * y * z - 2 * x * w],
+                          [2 * x * z - 2 * y * w, 2 * y * z + 2 * x * w, 1 - 2 * x ** 2 - 2 * y ** 2]])
+            dir = np.dot(R, np.array([[0], [0], [-1]])).transpose()[0].tolist()
+            return dir
+        dir = quaternion2euler(direction)
+
+        srcparam1=np.array([val for val in obj['srcparam1']])
+        srcparam2=np.array([val for val in obj['srcparam2']])
+
+        # originaze cfg
         outputdir = GetBPWorkFolder();
         if not os.path.isdir(outputdir):
             os.makedirs(outputdir)
+        import scipy.io
+        vol = scipy.io.loadmat(os.path.join(outputdir,'ImageMesh.mat'))['image']
+        affine_matrix = scipy.io.loadmat(os.path.join(outputdir,'ImageMesh.mat'))['scale'] #scale is matrix but just take first numbe
+        move = np.array([affine_matrix[0,3],affine_matrix[1,3],affine_matrix[2,3]])
+        scale = np.array([affine_matrix[0,0],affine_matrix[1,1],affine_matrix[2,2]])
+        cfg={'vol':vol, 'prop':parameters,'srctype':obj['srctype'],'srcpos':(location-move)/scale, 'srcdir':dir,
+             'srcparam1':srcparam1/np.append(scale,[1]),'srcparam2':srcparam2/np.append(scale,[1]),'nphoton': self.nphoton,
+             'srctype':obj["srctype"],'unitinmm': obj['unitinmm']*scale[0], 'tend':self.tend, 'tstep':self.tstep,
+             'isreflect':self.isreflect,'isnormalized':self.isnormalized, 'method':self.method, 'outputtype':self.outputtype,
+             'basisorder':self.basisorder, 'debuglevel':self.debuglevel, 'gpuid':self.gpuid}
 
-        # Save MMC information
+        # Run mcx
+        import pmcx
         jd.save({'prop':parameters,'cfg':cfg}, os.path.join(outputdir,'mmcinfo.json'));
+        res = pmcx.run(cfg)
+        jd.save(res, os.path.join(outputdir,'mcx_result.json'))
+        flux = np.log10(res['flux'][:,:,:,0]+1) # convert -inf to 0 for color
+        result = {'flux':flux, 'scale':affine_matrix}
+        jd.save(result, os.path.join(outputdir, 'plot_result.json'))
 
-        #run MMC
-        try:
-            if(bpy.context.scene.blender_photonics.backend == "octave"):
-                import oct2py as op
-                oc = op.Oct2Py()
-            else:
-                import matlab.engine as op
-                oc = op.start_matlab()
-        except ImportError:
-            raise ImportError('To run this feature, you must install the oct2py or matlab.engine Python modulem first, based on your choice of the backend')
-
-        oc.addpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),'script'))
-
-        if (int(self.tool) == 1):
-            oc.feval('blendermcx',os.path.join(outputdir,'mmcinfo.json'), os.path.join(outputdir,'ImageMesh.mat'), nargout=0)
-        elif ((int(self.tool) == 2)):
-            oc.feval('blendermmc', os.path.join(outputdir, 'mmcinfo.json'), os.path.join(outputdir,'meshdata.mat'),nargout=0)
 
         #remove all object and import all region as one object
         for obj in bpy.data.objects:
             bpy.data.objects.remove(obj)
         bpy.ops.outliner.orphans_purge(do_recursive=True)
 
-        if self.method=='elem':
-            outputmesh = jd.load(os.path.join(outputdir, 'volumemesh.jmsh'));
-            outputmesh = JMeshFallback(outputmesh)
-            if (not isinstance(outputmesh['MeshTri3'], np.ndarray)):
-                outputmesh['MeshTri3'] = np.asarray(outputmesh['MeshTri3'], dtype=np.uint32);
-            outputmesh['MeshTri3'] -= 1
-            AddMeshFromNodeFace(outputmesh['MeshVertex3'], outputmesh['MeshTri3'].tolist(), "Iso2Mesh");
-
-            # add color to blender model
-            obj = bpy.data.objects['Iso2Mesh']
-            mmcoutput = jd.load(os.path.join(outputdir, 'mmcoutput.json'));
-            mmcoutput['fluxlog'] = np.asarray(mmcoutput['fluxlog'], dtype='float32');
-
-            colorbit = 10
-            colorkind = 2 ** colorbit - 1
-            weight_data = normalize(mmcoutput['fluxlog'])
-            weight_data_test = np.rint(weight_data * (colorkind))
-
-            new_vertex_group = obj.vertex_groups.new(name='weight')
-            for i in range(colorkind + 1):
-                ind = np.array(np.where(weight_data_test == i)).tolist()
-                new_vertex_group.add(ind[0], i / colorkind, 'ADD')
-
-            bpy.context.view_layer.objects.active = obj
-            bpy.ops.object.mode_set(mode='WEIGHT_PAINT')
-
-            bpy.context.space_data.shading.type = 'SOLID'
-        elif self.method=='grid':
-            outputmesh=oc.load(os.path.join(outputdir,'Mcx_result.mat'))
-            LoadVolMesh(outputmesh,'MCX_result', outputdir, mode='result_view', colormap=self.colormap)
+        LoadVolMesh(result,'MCX_result', outputdir, mode='result_view', colormap=self.colormap)
 
         print('Finshed!, Please change intereaction mode to Weight Paint to see result!')
         print('''If you prefer a perspective effect，please go to edit mode and make sure shading 'Vertex Group Weight' is on.''')
