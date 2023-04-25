@@ -173,7 +173,7 @@ class runmmc(bpy.types.Operator):
 
         res = pmcx.run(cfg)
         jd.save(res, os.path.join(outputdir,'mcx_result.json'))
-        flux = np.log10(res['flux'][:,:,:,0]/res['stat']['normalizer']+1) # convert -inf to 0 for color
+        flux = np.log10(res['flux'][:,:,:,0]+1) # convert -inf to 0 for color
         result = {'flux':flux, 'scale':affine_matrix}
         jd.save(result, os.path.join(outputdir, 'plot_result.json'))
 
