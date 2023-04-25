@@ -106,7 +106,7 @@ class runmmc(bpy.types.Operator):
         scale = np.array([affine_matrix[0,0],affine_matrix[1,1],affine_matrix[2,2]])
         cfg={'vol':vol, 'prop':parameters,'srctype':obj['srctype'],'srcpos':(location-move)/scale, 'srcdir':dir,
              'srcparam1':srcparam1/np.append(scale,[1]),'srcparam2':srcparam2/np.append(scale,[1]),'nphoton': self.nphoton,
-             'srctype':obj["srctype"],'unitinmm': obj['unitinmm']*scale[0], 'tend':self.tend, 'tstep':self.tstep,
+             'srctype':obj["srctype"],'unitinmm': obj['unitinmm']*scale[0],'tstart':0, 'tend':self.tend, 'tstep':self.tstep,
              'isreflect':self.isreflect,'isnormalized':self.isnormalized, 'method':self.method, 'outputtype':self.outputtype,
              'basisorder':self.basisorder, 'debuglevel':self.debuglevel, 'gpuid':self.gpuid}
 
@@ -115,7 +115,7 @@ class runmmc(bpy.types.Operator):
         jd.save({'prop':parameters,'cfg':cfg}, os.path.join(outputdir,'mmcinfo.json'));
         res = pmcx.run(cfg)
         jd.save(res, os.path.join(outputdir,'mcx_result.json'))
-        flux = np.log10(res['flux'][:,:,:,0]+1) # convert -inf to 0 for color
+        flux = np.log10(res['flux'][:,:,:,0]/res['stat']['normalizer']+1) # convert -inf to 0 for color
         result = {'flux':flux, 'scale':affine_matrix}
         jd.save(result, os.path.join(outputdir, 'plot_result.json'))
 
@@ -125,7 +125,7 @@ class runmmc(bpy.types.Operator):
             bpy.data.objects.remove(obj)
         bpy.ops.outliner.orphans_purge(do_recursive=True)
 
-        LoadVolMesh(result,'MCX_result', outputdir, mode='result_view', colormap=self.colormap)
+        #LoadVolMesh(result,'MCX_result', outputdir, mode='result_view', colormap=self.colormap)
 
         print('Finshed!, Please change intereaction mode to Weight Paint to see result!')
         print('''If you prefer a perspective effect，please go to edit mode and make sure shading 'Vertex Group Weight' is on.''')
