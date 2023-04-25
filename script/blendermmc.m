@@ -97,5 +97,5 @@ end
 
 % save data only whem elem is enable
 if cfg.method=='elem':
-    savejson('',struct('fluxlog',fluxlog(:)'),'FileName',bpmwpath('mmcoutput.json'),'ArrayIndent',0);
+    savejson('',struct('logflux',fluxlog(:)'),'FileName',bpmwpath('mmcoutput.json'),'ArrayIndent',0);
 end

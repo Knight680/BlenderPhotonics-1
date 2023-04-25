@@ -109,10 +109,68 @@ class runmmc(bpy.types.Operator):
              'srctype':obj["srctype"],'unitinmm': obj['unitinmm']*scale[0],'tstart':0, 'tend':self.tend, 'tstep':self.tstep,
              'isreflect':self.isreflect,'isnormalized':self.isnormalized, 'method':self.method, 'outputtype':self.outputtype,
              'basisorder':self.basisorder, 'debuglevel':self.debuglevel, 'gpuid':self.gpuid}
-
-        # Run mcx
-        import pmcx
         jd.save({'prop':parameters,'cfg':cfg}, os.path.join(outputdir,'mmcinfo.json'));
+
+        #run MMC
+        if (int(self.tool) == 1):
+            import pmcx
+            res = pmcx.run(cfg)
+            jd.save(res, os.path.join(outputdir,'mcxoutput.json'))
+            flux = np.log10(res['flux'][:,:,:,0]/res['stat']['normalizer']+1) # convert -inf to 0 for color
+            result = {'flux':flux, 'scale':affine_matrix}
+            jd.save(result, os.path.join(outputdir, 'plot_info.json'))
+
+        elif ((int(self.tool) == 2)):
+            try:
+                if(bpy.context.scene.blender_photonics.backend == "octave"):
+                    import oct2py as op
+                    oc = op.Oct2Py()
+                else:
+                    import matlab.engine as op
+                    oc = op.start_matlab()
+            except ImportError:
+                raise ImportError('To run this feature, you must install the oct2py or matlab.engine Python modulem first, based on your choice of the backend')
+
+            oc.addpath(os.path.join(os.path.dirname(os.path.abspath(__file__)),'script'))
+            oc.feval('blendermmc', os.path.join(outputdir, 'mmcinfo.json'), os.path.join(outputdir,'meshdata.mat'),nargout=0)
+
+        #remove all object and import all region as one object
+        for obj in bpy.data.objects:
+            bpy.data.objects.remove(obj)
+        bpy.ops.outliner.orphans_purge(do_recursive=True)
+
+        if self.method=='elem':
+            outputmesh = jd.load(os.path.join(outputdir, 'volumemesh.jmsh'));
+            outputmesh = JMeshFallback(outputmesh)
+            if (not isinstance(outputmesh['MeshTri3'], np.ndarray)):
+                outputmesh['MeshTri3'] = np.asarray(outputmesh['MeshTri3'], dtype=np.uint32);
+            outputmesh['MeshTri3'] -= 1
+            AddMeshFromNodeFace(outputmesh['MeshVertex3'], outputmesh['MeshTri3'].tolist(), "Iso2Mesh");
+
+            # add color to blender model
+            obj = bpy.data.objects['Iso2Mesh']
+            mmcoutput = jd.load(os.path.join(outputdir, 'mmcoutput.json'));
+            mmcoutput['fluxlog'] = np.asarray(mmcoutput['fluxlog'], dtype='float32');
+
+            colorbit = 10
+            colorkind = 2 ** colorbit - 1
+            weight_data = normalize(mmcoutput['fluxlog'])
+            weight_data_test = np.rint(weight_data * (colorkind))
+
+            new_vertex_group = obj.vertex_groups.new(name='weight')
+            for i in range(colorkind + 1):
+                ind = np.array(np.where(weight_data_test == i)).tolist()
+                new_vertex_group.add(ind[0], i / colorkind, 'ADD')
+
+            bpy.context.view_layer.objects.active = obj
+            bpy.ops.object.mode_set(mode='WEIGHT_PAINT')
+
+            bpy.context.space_data.shading.type = 'SOLID'
+        elif self.method=='grid':
+            LoadVolMesh(result,'MCX_result', outputdir, mode='result_view', colormap=self.colormap)
+
+
+
         res = pmcx.run(cfg)
         jd.save(res, os.path.join(outputdir,'mcx_result.json'))
         flux = np.log10(res['flux'][:,:,:,0]/res['stat']['normalizer']+1) # convert -inf to 0 for color
@@ -125,7 +183,7 @@ class runmmc(bpy.types.Operator):
             bpy.data.objects.remove(obj)
         bpy.ops.outliner.orphans_purge(do_recursive=True)
 
-        #LoadVolMesh(result,'MCX_result', outputdir, mode='result_view', colormap=self.colormap)
+        LoadVolMesh(result,'MCX_result', outputdir, mode='result_view', colormap=self.colormap)
 
         print('Finshed!, Please change intereaction mode to Weight Paint to see result!')
         print('''If you prefer a perspective effect，please go to edit mode and make sure shading 'Vertex Group Weight' is on.''')
